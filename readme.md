@@ -41,3 +41,38 @@ Designed to demonstrate system design, concurrency, reliability, and performance
 ```bash
 docker-compose up -d
 ```
+
+## Project structure
+
+event-platform/
+├── ingest-service/
+│ ├── cmd/ingest/main.go
+│ ├── internal/
+│ │ ├── http/
+│ │ ├── config/
+│ │ ├── batching/
+│ │ └── producer/
+│ └── Dockerfile
+├── processor-service/
+│ ├── cmd/processor/main.go
+│ ├── internal/
+│ │ ├── consumer/
+│ │ ├── workers/
+│ │ ├── retry/
+│ │ └── dlq/
+│ └── Dockerfile
+├── sink-service/
+│ ├── cmd/sink/main.go
+│ └── internal/
+│ └── storage/
+├── pkg/
+│ ├── event/
+│ ├── config/
+│ └── observability/
+├── proto/
+│ └── event.proto
+├── loadgen/
+│ └── main.go
+├── docker-compose.yml
+├── architecture.png
+└── README.md
