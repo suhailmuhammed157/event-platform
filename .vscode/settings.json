@@ -1,0 +1,33 @@
+{
+  "workbench.colorTheme": "Ayu Dark Bordered",
+  "editor.fontFamily": "JetBrains Mono",
+  "editor.fontLigatures": true,
+  "editor.fontWeight": 300,
+  "editor.fontSize": 13,
+
+  // Go extension settings
+  "gopls": {
+    "ui.completion.usePlaceholders": true,
+    "ui.semanticTokens": true
+  },
+  // format all files on save if a formatter is available
+  "editor.formatOnSave": true,
+  // I use "goimports" instead of "gofmt"
+  // because it does the same thing but also formats imports
+  "go.formatTool": "goimports",
+  // go-specific settings
+
+  "[go]": {
+    // "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "[go.mod]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "cSpell.words": ["loadgen"]
+}
