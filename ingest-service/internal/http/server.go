@@ -1,21 +1,19 @@
 package http
 
 import (
-	"context"
 	"encoding/json"
-	"event-platform/ingest-service/internal/producer"
-	"fmt"
+	"event-platform/ingest-service/internal/batching"
 	"log"
 	"net/http"
 	"time"
 )
 
 type Server struct {
-	producer *producer.KafkaProducer
+	batcher *batching.Batcher
 }
 
-func NewServer(p *producer.KafkaProducer) *Server {
-	return &Server{producer: p}
+func NewServer(b *batching.Batcher) *Server {
+	return &Server{batcher: b}
 }
 
 func (s *Server) Run(port string) {
@@ -52,14 +50,10 @@ func (s *Server) ingestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-
-	if err := s.producer.Publish(ctx, event.ID, []byte(event.Payload)); err != nil {
-		fmt.Println(err)
-		http.Error(w, "failed to enqueue event", http.StatusInternalServerError)
-		return
-	}
+	s.batcher.Add(batching.Event{
+		Key:   event.ID,
+		Value: []byte(event.Payload),
+	})
 
 	w.WriteHeader(http.StatusAccepted)
 }

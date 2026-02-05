@@ -27,6 +27,7 @@ func (p *KafkaProducer) Publish(ctx context.Context, key string, value []byte) e
 		Key:   []byte(key),
 		Value: value,
 	})
+
 }
 
 func (p *KafkaProducer) Close() error {

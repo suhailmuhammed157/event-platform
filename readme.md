@@ -6,7 +6,7 @@ Designed to demonstrate system design, concurrency, reliability, and performance
 ## Goals
 
 - Handle 100k+ events/sec on commodity hardware
-- Bounded concurrency with backpressure
+- Bounded concurrency with back pressure
 - At-least-once delivery with retry and DLQ
 - Observability with Prometheus + Grafana
 - Horizontally scalable via Kafka partitions
