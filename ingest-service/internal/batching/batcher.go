@@ -2,20 +2,20 @@ package batching
 
 import (
 	"context"
+	"event-platform/pkg/kafka"
 	"log"
 	"sync"
 	"time"
-
-	"event-platform/ingest-service/internal/producer"
 )
 
 type Event struct {
 	Key   string
 	Value []byte
+	Topic string
 }
 
 type Batcher struct {
-	producer     *producer.KafkaProducer
+	producer     *kafka.MultiTopicProducer
 	batch        []Event
 	batchSize    int
 	batchTimeout time.Duration
@@ -25,7 +25,7 @@ type Batcher struct {
 	cancel       context.CancelFunc
 }
 
-func NewBatcher(p *producer.KafkaProducer, batchSize int, batchTimeout time.Duration) *Batcher {
+func NewBatcher(p *kafka.MultiTopicProducer, batchSize int, batchTimeout time.Duration) *Batcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Batcher{
 		producer:     p,
@@ -77,7 +77,7 @@ func (b *Batcher) flushLocked() {
 	go func(events []Event) {
 		for _, e := range events {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if err := b.producer.Publish(ctx, e.Key, e.Value); err != nil {
+			if err := b.producer.Publish(ctx, e.Topic, e.Key, e.Value); err != nil {
 				log.Printf("failed to publish event %s: %v", e.Key, err)
 			}
 			cancel()

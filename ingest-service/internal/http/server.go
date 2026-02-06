@@ -53,6 +53,7 @@ func (s *Server) ingestHandler(w http.ResponseWriter, r *http.Request) {
 	s.batcher.Add(batching.Event{
 		Key:   event.ID,
 		Value: []byte(event.Payload),
+		Topic: "events",
 	})
 
 	w.WriteHeader(http.StatusAccepted)

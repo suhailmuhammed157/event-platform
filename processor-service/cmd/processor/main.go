@@ -6,27 +6,36 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"event-platform/pkg/kafka"
 	"event-platform/processor-service/internal/config"
-	"event-platform/processor-service/internal/consumer"
-	"event-platform/processor-service/internal/workers"
+	"event-platform/processor-service/internal/handler"
 )
 
 func main() {
 	cfg := config.LoadConfig()
 
-	pool := workers.NewPool(cfg.WorkerCount, 1024)
+	pool := kafka.NewPool(cfg.WorkerCount, 1024)
 	defer pool.Shutdown()
 
-	c := consumer.NewConsumer(cfg.KafkaBroker, cfg.KafkaTopic, cfg.GroupID, pool)
-	defer c.Close()
+	batchConsumer := kafka.NewBatchConsumer(
+		cfg.KafkaBroker,
+		cfg.KafkaTopic,
+		cfg.GroupID,
+		pool,
+		100,                                    // batch size
+		20*time.Millisecond,                    // batch timeout
+		kafka.HandlerFunc(handler.HandleEvent), // <-- wrap function here
+	)
+	defer batchConsumer.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	log.Println("processor service started")
 
-	if err := c.Run(ctx); err != nil {
+	if err := batchConsumer.Run(ctx); err != nil {
 		log.Printf("consumer stopped: %v", err)
 	}
 }

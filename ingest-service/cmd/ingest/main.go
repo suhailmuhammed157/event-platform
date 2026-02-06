@@ -4,16 +4,17 @@ import (
 	"event-platform/ingest-service/internal/batching"
 	"event-platform/ingest-service/internal/config"
 	"event-platform/ingest-service/internal/http"
-	"event-platform/ingest-service/internal/producer"
+	"event-platform/pkg/kafka"
+
 	"time"
 )
 
 func main() {
 	cfg := config.LoadConfig()
-	kafkaProducer := producer.NewKafkaProducer(cfg.KafkaBroker, cfg.KafkaTopic)
-	defer kafkaProducer.Close()
+	kafkaMultiTopicProducer := kafka.NewMultiTopicProducer(cfg.KafkaBroker, cfg.KafkaTopic)
+	defer kafkaMultiTopicProducer.Close()
 
-	batcher := batching.NewBatcher(kafkaProducer, 50, 10*time.Millisecond)
+	batcher := batching.NewBatcher(kafkaMultiTopicProducer, 50, 10*time.Millisecond)
 	defer batcher.Close()
 
 	server := http.NewServer(batcher)

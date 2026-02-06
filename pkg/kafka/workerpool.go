@@ -1,4 +1,4 @@
-package workers
+package kafka
 
 import (
 	"context"
@@ -14,9 +14,7 @@ type Pool struct {
 }
 
 func NewPool(workerCount int, buffer int) *Pool {
-	p := &Pool{
-		jobs: make(chan Job, buffer),
-	}
+	p := &Pool{jobs: make(chan Job, buffer)}
 
 	for i := 0; i < workerCount; i++ {
 		p.wg.Add(1)
