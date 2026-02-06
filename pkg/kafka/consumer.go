@@ -44,20 +44,34 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 	ticker := time.NewTicker(c.batchTimeout)
 	defer ticker.Stop()
 
+	const backPressureThreshold = 0.8 // 80% of worker queue
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
 		case <-ticker.C:
 			if len(batch) > 0 {
 				c.flush(ctx, batch)
 				batch = batch[:0]
 			}
+
 		default:
+			// 🔥 BackPressure: slow down consumption if pool queue is almost full
+			queueLen := c.pool.QueueLen()
+			queueCap := c.pool.Capacity()
+
+			if float64(queueLen)/float64(queueCap) > backPressureThreshold {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+
 			m, err := c.reader.FetchMessage(ctx)
 			if err != nil {
 				return err
 			}
+
 			batch = append(batch, m)
 
 			if len(batch) >= c.batchSize {
@@ -68,22 +82,28 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 	}
 }
 
-func (c *BatchConsumer) flush(ctx context.Context, batch []kafka.Message) {
+func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) {
 	for _, m := range batch {
 		msg := m
-		c.pool.Submit(func(ctx context.Context) error {
-			err := c.handler.Handle(ctx, string(msg.Key), msg.Value)
+
+		// derive per-job context (can add timeout here if needed)
+		jobCtx, cancel := context.WithCancel(parentCtx)
+
+		c.pool.Submit(func(_ context.Context) error {
+			defer cancel()
+
+			err := c.handler.Handle(jobCtx, string(msg.Key), msg.Value)
 			if err == nil {
-				return c.reader.CommitMessages(ctx, msg)
+				return c.reader.CommitMessages(jobCtx, msg)
 			}
 
 			if errors.Is(err, event.ErrRetryable) {
-				_ = c.retryProducer.Publish(ctx, "events.retry", string(msg.Key), msg.Value)
-				return c.reader.CommitMessages(ctx, msg)
+				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
+				return c.reader.CommitMessages(jobCtx, msg)
 			}
 
-			_ = c.dlqProducer.Publish(ctx, "events.dlq", string(msg.Key), msg.Value)
-			return c.reader.CommitMessages(ctx, msg)
+			_ = c.dlqProducer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
+			return c.reader.CommitMessages(jobCtx, msg)
 		})
 	}
 }

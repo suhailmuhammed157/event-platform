@@ -2,40 +2,49 @@ package kafka
 
 import (
 	"context"
-	"log"
-	"sync"
+	"sync/atomic"
 )
+
+type Pool struct {
+	workers  int
+	jobs     chan Job
+	queueLen atomic.Int64
+}
 
 type Job func(ctx context.Context) error
 
-type Pool struct {
-	jobs chan Job
-	wg   sync.WaitGroup
-}
-
-func NewPool(workerCount int, buffer int) *Pool {
-	p := &Pool{jobs: make(chan Job, buffer)}
-
-	for i := 0; i < workerCount; i++ {
-		p.wg.Add(1)
-		go func(id int) {
-			defer p.wg.Done()
-			for job := range p.jobs {
-				if err := job(context.Background()); err != nil {
-					log.Printf("worker %d: job failed: %v", id, err)
-				}
-			}
-		}(i)
+func NewPool(workers int, queueSize int) *Pool {
+	p := &Pool{
+		workers: workers,
+		jobs:    make(chan Job, queueSize),
 	}
 
+	for i := 0; i < workers; i++ {
+		go p.worker()
+	}
 	return p
 }
 
+func (p *Pool) worker() {
+	for job := range p.jobs {
+		_ = job(context.Background())
+		p.queueLen.Add(-1)
+	}
+}
+
 func (p *Pool) Submit(job Job) {
+	p.queueLen.Add(1)
 	p.jobs <- job
+}
+
+func (p *Pool) QueueLen() int {
+	return int(p.queueLen.Load())
+}
+
+func (p *Pool) Capacity() int {
+	return cap(p.jobs)
 }
 
 func (p *Pool) Shutdown() {
 	close(p.jobs)
-	p.wg.Wait()
 }
