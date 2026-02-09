@@ -85,9 +85,7 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) {
 	for _, m := range batch {
 		msg := m
-
-		// derive per-job context (can add timeout here if needed)
-		jobCtx, cancel := context.WithCancel(parentCtx)
+		jobCtx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 
 		c.pool.Submit(func(_ context.Context) error {
 			defer cancel()
@@ -97,13 +95,21 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 				return c.reader.CommitMessages(jobCtx, msg)
 			}
 
-			if errors.Is(err, event.ErrRetryable) {
+			switch {
+			case errors.Is(err, event.ErrRetryable):
+				// Exponential backoff (example: 5s → 10s → 20s)
+				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
+				return c.reader.CommitMessages(jobCtx, msg)
+
+			case errors.Is(err, event.ErrFatal):
+				_ = c.dlqProducer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
+				return c.reader.CommitMessages(jobCtx, msg)
+
+			default:
+				// treat unknown errors as retryable
 				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 			}
-
-			_ = c.dlqProducer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
-			return c.reader.CommitMessages(jobCtx, msg)
 		})
 	}
 }
