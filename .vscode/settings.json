@@ -29,6 +29,6 @@
       "source.organizeImports": "explicit"
     }
   },
-  "cSpell.words": ["loadgen"]
+  "cSpell.words": ["loadgen", "retryable"]
   // "cSpell.words": ["loadgen"]
 }

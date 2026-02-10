@@ -12,13 +12,14 @@ import (
 )
 
 type BatchConsumer struct {
-	reader        *kafka.Reader
-	pool          *Pool
-	batchSize     int
-	batchTimeout  time.Duration
-	retryProducer *MultiTopicProducer
-	dlqProducer   *MultiTopicProducer
-	handler       JobHandler
+	reader            *kafka.Reader
+	pool              *Pool
+	batchSize         int
+	batchTimeout      time.Duration
+	retryProducer     *MultiTopicProducer
+	dlqProducer       *MultiTopicProducer
+	processedProducer *MultiTopicProducer
+	handler           JobHandler
 }
 
 func NewBatchConsumer(broker, topic, groupID string, pool *Pool, batchSize int, batchTimeout time.Duration, handler JobHandler) *BatchConsumer {
@@ -91,13 +92,22 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 			defer cancel()
 
 			err := c.handler.Handle(jobCtx, string(msg.Key), msg.Value)
-			if err == nil {
-				return c.reader.CommitMessages(jobCtx, msg)
-			}
 
 			switch {
+			case err == nil:
+				// ✅ Publish processed result downstream
+				if err := c.processedProducer.Publish(
+					jobCtx,
+					"events.processed",
+					string(msg.Key),
+					msg.Value, // or transformed payload
+				); err != nil {
+					return err // do NOT commit → message will be retried
+				}
+
+				return c.reader.CommitMessages(jobCtx, msg)
+
 			case errors.Is(err, event.ErrRetryable):
-				// Exponential backoff (example: 5s → 10s → 20s)
 				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 
@@ -106,7 +116,6 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 				return c.reader.CommitMessages(jobCtx, msg)
 
 			default:
-				// treat unknown errors as retryable
 				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 			}
