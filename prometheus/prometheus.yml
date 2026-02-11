@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: ingest
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+
+  - job_name: processor
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+
+  - job_name: sink
+    static_configs:
+      - targets: ["host.docker.internal:8083"]

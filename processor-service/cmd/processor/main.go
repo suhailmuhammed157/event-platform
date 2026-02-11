@@ -9,12 +9,17 @@ import (
 	"time"
 
 	"event-platform/pkg/kafka"
+	"event-platform/pkg/observability"
 	"event-platform/processor-service/internal/config"
 	"event-platform/processor-service/internal/handler"
 )
 
 func main() {
 	cfg := config.LoadConfig()
+
+	// 1️⃣ Metrics
+	observability.Init()
+	observability.ServeMetrics("8082") // metrics exposed at http://localhost:8082/metrics
 
 	pool := kafka.NewPool(cfg.WorkerCount, 1024)
 	defer pool.Shutdown()

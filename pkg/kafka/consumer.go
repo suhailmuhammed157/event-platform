@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"event-platform/pkg/event"
+	"event-platform/pkg/observability"
 
 	"time"
 
@@ -94,7 +95,9 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 		c.pool.Submit(func(_ context.Context) error {
 			defer cancel()
 
+			start := time.Now()
 			err := c.handler.Handle(jobCtx, string(msg.Key), msg.Value)
+			observability.ProcessingLatency.Observe(time.Since(start).Seconds())
 
 			switch {
 			case err == nil:
@@ -108,19 +111,35 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 					return err // do NOT commit → message will be retried
 				}
 
-				return c.reader.CommitMessages(jobCtx, msg)
+				err = c.reader.CommitMessages(jobCtx, msg)
+				if err == nil {
+					observability.ProcessedEvents.Inc()
+				}
+				return err
 
 			case errors.Is(err, event.ErrRetryable):
 				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
-				return c.reader.CommitMessages(jobCtx, msg)
+				err = c.reader.CommitMessages(jobCtx, msg)
+				if err == nil {
+					observability.RetryEvents.Inc()
+				}
+				return err
 
 			case errors.Is(err, event.ErrFatal):
 				_ = c.producer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
-				return c.reader.CommitMessages(jobCtx, msg)
+				err = c.reader.CommitMessages(jobCtx, msg)
+				if err == nil {
+					observability.DLQEvents.Inc()
+				}
+				return err
 
 			default:
 				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
-				return c.reader.CommitMessages(jobCtx, msg)
+				err = c.reader.CommitMessages(jobCtx, msg)
+				if err == nil {
+					observability.RetryEvents.Inc()
+				}
+				return err
 			}
 		})
 	}

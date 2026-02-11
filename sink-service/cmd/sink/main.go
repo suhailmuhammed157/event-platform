@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"event-platform/pkg/observability"
 	"event-platform/sink-service/internal/config"
 	"event-platform/sink-service/internal/storage"
 
@@ -16,6 +17,10 @@ import (
 
 func main() {
 	cfg := config.Load()
+
+	// 1️⃣ Metrics
+	observability.Init()
+	observability.ServeMetrics("8083") // metrics exposed at http://localhost:8083/metrics
 
 	sink, err := storage.NewPostgresSink(cfg.PostgresDSN)
 	if err != nil {
