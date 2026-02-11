@@ -6,11 +6,13 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/segmentio/kafka-go"
 )
 
 type Event struct {
 	ID      string
 	Payload []byte
+	Msg     kafka.Message
 }
 
 type PostgresSink struct {

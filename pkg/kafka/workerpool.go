@@ -27,7 +27,7 @@ func NewPool(workers int, queueSize int) *Pool {
 
 func (p *Pool) worker() {
 	for job := range p.jobs {
-		_ = job(context.Background())
+		_ = job(context.Background()) //execute job
 		p.queueLen.Add(-1)
 	}
 }

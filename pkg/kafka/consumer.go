@@ -12,17 +12,19 @@ import (
 )
 
 type BatchConsumer struct {
-	reader            *kafka.Reader
-	pool              *Pool
-	batchSize         int
-	batchTimeout      time.Duration
-	retryProducer     *MultiTopicProducer
-	dlqProducer       *MultiTopicProducer
-	processedProducer *MultiTopicProducer
-	handler           JobHandler
+	reader       *kafka.Reader
+	pool         *Pool
+	batchSize    int
+	batchTimeout time.Duration
+	producer     *MultiTopicProducer
+	handler      JobHandler
 }
 
-func NewBatchConsumer(broker, topic, groupID string, pool *Pool, batchSize int, batchTimeout time.Duration, handler JobHandler) *BatchConsumer {
+func NewBatchConsumer(broker, topic, groupID string, pool *Pool, batchSize int, batchTimeout time.Duration, handler JobHandler, producer *MultiTopicProducer) (*BatchConsumer, error) {
+
+	if producer == nil {
+		return nil, errors.New("all producers must be non-nil")
+	}
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  []string{broker},
 		Topic:    topic,
@@ -37,7 +39,8 @@ func NewBatchConsumer(broker, topic, groupID string, pool *Pool, batchSize int, 
 		batchSize:    batchSize,
 		batchTimeout: batchTimeout,
 		handler:      handler,
-	}
+		producer:     producer,
+	}, nil
 }
 
 func (c *BatchConsumer) Run(ctx context.Context) error {
@@ -55,7 +58,7 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 		case <-ticker.C:
 			if len(batch) > 0 {
 				c.flush(ctx, batch)
-				batch = batch[:0]
+				batch = batch[:0] // reset batch
 			}
 
 		default:
@@ -96,7 +99,7 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 			switch {
 			case err == nil:
 				// ✅ Publish processed result downstream
-				if err := c.processedProducer.Publish(
+				if err := c.producer.Publish(
 					jobCtx,
 					"events.processed",
 					string(msg.Key),
@@ -108,15 +111,15 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 				return c.reader.CommitMessages(jobCtx, msg)
 
 			case errors.Is(err, event.ErrRetryable):
-				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
+				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 
 			case errors.Is(err, event.ErrFatal):
-				_ = c.dlqProducer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
+				_ = c.producer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 
 			default:
-				_ = c.retryProducer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
+				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
 				return c.reader.CommitMessages(jobCtx, msg)
 			}
 		})

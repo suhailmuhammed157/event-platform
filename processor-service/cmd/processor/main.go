@@ -19,15 +19,23 @@ func main() {
 	pool := kafka.NewPool(cfg.WorkerCount, 1024)
 	defer pool.Shutdown()
 
-	batchConsumer := kafka.NewBatchConsumer(
+	producer := kafka.NewMultiTopicProducer(cfg.KafkaBroker, "events.processed",
+		"events.retry",
+		"events.dlq")
+
+	batchConsumer, err := kafka.NewBatchConsumer(
 		cfg.KafkaBroker,
 		cfg.KafkaTopic,
 		cfg.GroupID,
 		pool,
-		100,                                    // batch size
-		20*time.Millisecond,                    // batch timeout
-		kafka.HandlerFunc(handler.HandleEvent), // <-- wrap function here
+		100,                 // batch size
+		20*time.Millisecond, // batch timeout
+		kafka.HandlerFunc(handler.HandleEvent),
+		producer,
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer batchConsumer.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

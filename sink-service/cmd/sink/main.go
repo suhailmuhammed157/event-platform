@@ -63,6 +63,7 @@ func main() {
 			batch = append(batch, storage.Event{
 				ID:      string(m.Key),
 				Payload: m.Value,
+				Msg:     m,
 			})
 
 			if len(batch) >= cfg.BatchSize {
@@ -74,13 +75,18 @@ func main() {
 }
 
 func flush(ctx context.Context, sink *storage.PostgresSink, reader *kafka.Reader, batch []storage.Event) {
+
 	if err := sink.InsertBatch(ctx, batch); err != nil {
 		log.Printf("batch insert failed: %v", err)
 		return
 	}
 
+	msgs := make([]kafka.Message, 0, len(batch))
 	for _, e := range batch {
-		log.Printf("batch fetch failed: %v", e)
-		_ = reader.CommitMessages(ctx)
+		msgs = append(msgs, e.Msg)
+	}
+
+	if err := reader.CommitMessages(ctx, msgs...); err != nil {
+		log.Printf("kafka commit failed: %v", err)
 	}
 }

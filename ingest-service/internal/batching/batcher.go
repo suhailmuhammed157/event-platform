@@ -71,8 +71,8 @@ func (b *Batcher) flushLocked() {
 		return
 	}
 
-	batchCopy := b.batch
-	b.batch = make([]Event, 0, b.batchSize)
+	batchCopy := b.batch                    // make a copy before resetting
+	b.batch = make([]Event, 0, b.batchSize) // reset batch
 
 	go func(events []Event) {
 		for _, e := range events {
