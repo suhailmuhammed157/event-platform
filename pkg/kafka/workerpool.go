@@ -20,12 +20,12 @@ func NewPool(workers int, queueSize int) *Pool {
 	}
 
 	for i := 0; i < workers; i++ {
-		go p.worker()
+		go p.runWorker()
 	}
 	return p
 }
 
-func (p *Pool) worker() {
+func (p *Pool) runWorker() {
 	for job := range p.jobs {
 		_ = job(context.Background()) //execute job
 		p.queueLen.Add(-1)

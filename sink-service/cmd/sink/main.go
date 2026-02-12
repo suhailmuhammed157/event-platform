@@ -86,6 +86,7 @@ func flush(ctx context.Context, sink *storage.PostgresSink, reader *kafka.Reader
 		return
 	}
 
+	// once the batch insert is success, then commit all the kafka message
 	msgs := make([]kafka.Message, 0, len(batch))
 	for _, e := range batch {
 		msgs = append(msgs, e.Msg)

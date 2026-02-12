@@ -53,10 +53,16 @@ func (b *Batcher) Add(event Event) {
 
 // Run flush on timeout
 func (b *Batcher) run() {
+	defer b.ticker.Stop()
+
 	for {
 		select {
 		case <-b.ctx.Done():
+			b.mutex.Lock()
+			b.flushLocked()
+			b.mutex.Unlock()
 			return
+
 		case <-b.ticker.C:
 			b.mutex.Lock()
 			b.flushLocked()
@@ -71,8 +77,8 @@ func (b *Batcher) flushLocked() {
 		return
 	}
 
-	batchCopy := b.batch                    // make a copy before resetting
-	b.batch = make([]Event, 0, b.batchSize) // reset batch
+	batchCopy := b.batch                    // point to the existing batch
+	b.batch = make([]Event, 0, b.batchSize) // point to new memory - reset batch
 
 	go func(events []Event) {
 		for _, e := range events {
@@ -87,7 +93,6 @@ func (b *Batcher) flushLocked() {
 
 func (b *Batcher) Close() {
 	b.cancel()
-	b.ticker.Stop()
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	b.flushLocked()
