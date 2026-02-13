@@ -49,7 +49,18 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 	ticker := time.NewTicker(c.batchTimeout)
 	defer ticker.Stop()
 
-	const backPressureThreshold = 0.8 // 80% of worker queue
+	msgCh := make(chan kafka.Message, 100)
+
+	go func() {
+		defer close(msgCh)
+		for {
+			m, err := c.reader.FetchMessage(ctx)
+			if err != nil {
+				return
+			}
+			msgCh <- m
+		}
+	}()
 
 	for {
 		select {
@@ -59,24 +70,10 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 		case <-ticker.C:
 			if len(batch) > 0 {
 				c.flush(ctx, batch)
-				batch = batch[:0] // reset batch
+				batch = batch[:0]
 			}
 
-		default:
-			// 🔥 BackPressure: slow down consumption if pool queue is almost full
-			queueLen := c.pool.QueueLen()
-			queueCap := c.pool.Capacity()
-
-			if float64(queueLen)/float64(queueCap) > backPressureThreshold {
-				time.Sleep(5 * time.Millisecond)
-				continue
-			}
-
-			m, err := c.reader.FetchMessage(ctx)
-			if err != nil {
-				return err
-			}
-
+		case m := <-msgCh:
 			batch = append(batch, m)
 
 			if len(batch) >= c.batchSize {
@@ -88,61 +85,49 @@ func (c *BatchConsumer) Run(ctx context.Context) error {
 }
 
 func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) {
-	for _, m := range batch {
-		msg := m
-		jobCtx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
+
+	for _, msg := range batch {
+		if msg.Value == nil {
+			continue
+		}
+
+		m := msg
+		jobCtx, cancel := context.WithCancel(parentCtx)
 
 		c.pool.Submit(func(_ context.Context) error {
 			defer cancel()
 
 			start := time.Now()
-			err := c.handler.Handle(jobCtx, string(msg.Key), msg.Value)
+			err := c.handler.Handle(jobCtx, string(m.Key), m.Value)
 			observability.ProcessingLatency.Observe(time.Since(start).Seconds())
 
-			switch {
-			case err == nil:
-				// ✅ Publish processed result downstream
-				if err := c.producer.Publish(
-					jobCtx,
-					"events.processed",
-					string(msg.Key),
-					msg.Value, // or transformed payload
-				); err != nil {
-					return err // do NOT commit → message will be retried
-				}
+			// select topic
+			topic := "events.retry"
+			if err == nil {
+				topic = "events.processed"
+			} else if errors.Is(err, event.ErrFatal) {
+				topic = "events.dlq"
+			}
 
-				err = c.reader.CommitMessages(jobCtx, msg)
-				if err == nil {
-					observability.ProcessedEvents.Inc()
-				}
-				return err
-
-			case errors.Is(err, event.ErrRetryable):
-				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
-				err = c.reader.CommitMessages(jobCtx, msg)
-				if err == nil {
-					observability.RetryEvents.Inc()
-				}
-				return err
-
-			case errors.Is(err, event.ErrFatal):
-				_ = c.producer.Publish(jobCtx, "events.dlq", string(msg.Key), msg.Value)
-				err = c.reader.CommitMessages(jobCtx, msg)
-				if err == nil {
-					observability.DLQEvents.Inc()
-				}
-				return err
-
-			default:
-				_ = c.producer.Publish(jobCtx, "events.retry", string(msg.Key), msg.Value)
-				err = c.reader.CommitMessages(jobCtx, msg)
-				if err == nil {
-					observability.RetryEvents.Inc()
-				}
+			if err := c.producer.Publish(jobCtx, topic, string(m.Key), m.Value); err != nil {
 				return err
 			}
+
+			if err := c.reader.CommitMessages(jobCtx, m); err == nil {
+				switch topic {
+				case "events.processed":
+					observability.ProcessedEvents.Inc()
+				case "events.retry":
+					observability.RetryEvents.Inc()
+				case "events.dlq":
+					observability.DLQEvents.Inc()
+				}
+			}
+
+			return err
 		})
 	}
+
 }
 
 func (c *BatchConsumer) Close() error {

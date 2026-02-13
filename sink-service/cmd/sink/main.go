@@ -47,7 +47,21 @@ func main() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
+	msgCh := make(chan kafka.Message, 500)
+
+	go func() {
+		defer close(msgCh)
+		for {
+			m, err := reader.FetchMessage(ctx)
+			if err != nil {
+				return
+			}
+			msgCh <- m
+		}
+	}()
+
 	for {
+
 		select {
 		case <-ctx.Done():
 			return
@@ -57,14 +71,7 @@ func main() {
 				flush(ctx, sink, reader, batch)
 				batch = batch[:0]
 			}
-
-		default:
-			m, err := reader.FetchMessage(ctx)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-
+		case m := <-msgCh:
 			batch = append(batch, storage.Event{
 				ID:      string(m.Key),
 				Payload: m.Value,
@@ -74,6 +81,7 @@ func main() {
 			if len(batch) >= cfg.BatchSize {
 				flush(ctx, sink, reader, batch)
 				batch = batch[:0]
+
 			}
 		}
 	}

@@ -21,8 +21,14 @@ func main() {
 	observability.Init()
 	observability.ServeMetrics("8082") // metrics exposed at http://localhost:8082/metrics
 
-	pool := kafka.NewPool(cfg.WorkerCount, 1024)
-	defer pool.Shutdown()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	pool := kafka.NewPool(ctx, cfg.WorkerCount, 10000)
+	defer func() {
+		log.Println("shutting down pool...")
+		pool.Shutdown()
+	}()
 
 	producer := kafka.NewMultiTopicProducer(cfg.KafkaBroker, "events.processed",
 		"events.retry",
@@ -33,8 +39,8 @@ func main() {
 		cfg.KafkaTopic,
 		cfg.GroupID,
 		pool,
-		100,                 // batch size
-		20*time.Millisecond, // batch timeout
+		1000,               // batch size
+		1*time.Millisecond, // batch timeout
 		kafka.HandlerFunc(handler.HandleEvent),
 		producer,
 	)
@@ -42,9 +48,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer batchConsumer.Close()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	log.Println("processor service started")
 

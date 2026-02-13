@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"log"
 	"sync/atomic"
 )
 
@@ -9,14 +10,19 @@ type Pool struct {
 	workers  int
 	jobs     chan Job
 	queueLen atomic.Int64
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 type Job func(ctx context.Context) error
 
-func NewPool(workers int, queueSize int) *Pool {
+func NewPool(ctx context.Context, workers int, queueSize int) *Pool {
+	pCtx, cancel := context.WithCancel(ctx)
 	p := &Pool{
 		workers: workers,
 		jobs:    make(chan Job, queueSize),
+		ctx:     pCtx,
+		cancel:  cancel,
 	}
 
 	for i := 0; i < workers; i++ {
@@ -27,7 +33,10 @@ func NewPool(workers int, queueSize int) *Pool {
 
 func (p *Pool) runWorker() {
 	for job := range p.jobs {
-		_ = job(context.Background()) //execute job
+		err := job(p.ctx) //execute job
+		if err != nil {
+			log.Println("-------", err)
+		}
 		p.queueLen.Add(-1)
 	}
 }
