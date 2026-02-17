@@ -92,13 +92,10 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 		}
 
 		m := msg
-		jobCtx, cancel := context.WithCancel(parentCtx)
 
 		c.pool.Submit(func(_ context.Context) error {
-			defer cancel()
-
 			start := time.Now()
-			err := c.handler.Handle(jobCtx, string(m.Key), m.Value)
+			err := c.handler.Handle(parentCtx, string(m.Key), m.Value)
 			observability.ProcessingLatency.Observe(time.Since(start).Seconds())
 
 			// select topic
@@ -109,11 +106,11 @@ func (c *BatchConsumer) flush(parentCtx context.Context, batch []kafka.Message) 
 				topic = "events.dlq"
 			}
 
-			if err := c.producer.Publish(jobCtx, topic, string(m.Key), m.Value); err != nil {
+			if err := c.producer.Publish(parentCtx, topic, string(m.Key), m.Value); err != nil {
 				return err
 			}
 
-			if err := c.reader.CommitMessages(jobCtx, m); err == nil {
+			if err := c.reader.CommitMessages(parentCtx, m); err == nil {
 				switch topic {
 				case "events.processed":
 					observability.ProcessedEvents.Inc()

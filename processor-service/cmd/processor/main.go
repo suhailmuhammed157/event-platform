@@ -10,12 +10,15 @@ import (
 
 	"event-platform/pkg/kafka"
 	"event-platform/pkg/observability"
+	"event-platform/pkg/pprof"
 	"event-platform/processor-service/internal/config"
 	"event-platform/processor-service/internal/handler"
 )
 
 func main() {
 	cfg := config.LoadConfig()
+
+	pprof.Start("6060")
 
 	// 1️⃣ Metrics
 	observability.Init()

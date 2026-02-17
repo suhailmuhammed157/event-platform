@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"event-platform/pkg/observability"
+	"event-platform/pkg/pprof"
 	"event-platform/sink-service/internal/config"
 	"event-platform/sink-service/internal/storage"
 
@@ -17,6 +18,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	pprof.Start("6061")
 
 	// 1️⃣ Metrics
 	observability.Init()
